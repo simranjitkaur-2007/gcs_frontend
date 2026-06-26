@@ -1,0 +1,631 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CANSAT GROUND CONTROL SYSTEM</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="" />
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/socket.io-client@4.7.5/dist/socket.io.min.js"></script>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.min.js"></script>
+    <style>
+        :root {
+            --blue-950: #0c1929;
+            --blue-900: #0f2744;
+            --blue-800: #1e3a5f;
+            --blue-700: #1d4ed8;
+            --blue-600: #2563eb;
+            --blue-500: #3b82f6;
+            --blue-400: #60a5fa;
+            --blue-300: #93c5fd;
+            --blue-200: #bfdbfe;
+            --blue-100: #dbeafe;
+            --blue-50: #eff6ff;
+            --bg-page: #e8f0fa;
+            --text-main: #0f2744;
+            --text-muted: #475569;
+            --panel-bg: #f8fbff;
+            --panel-border: #93c5fd;
+        }
+        html, body {
+            height: 100%;
+            overflow: hidden;
+        }
+        body {
+            background: linear-gradient(160deg, var(--blue-100) 0%, var(--bg-page) 40%, #dce8f7 100%);
+            color: var(--text-main);
+            font-family: ui-sans-serif, system-ui, -apple-system, sans-serif;
+        }
+        .col-left, .col-right, .col-center {
+            display: flex;
+            flex-direction: column;
+            gap: 0.375rem;
+            min-height: 0;
+            overflow: hidden;
+        }
+        .panel {
+            border-radius: 8px;
+            border: 1px solid var(--panel-border);
+            background: var(--panel-bg);
+            box-shadow: 0 2px 8px rgba(30, 58, 95, 0.08);
+        }
+        .panel-accent { border-left: 4px solid var(--blue-600); background: linear-gradient(135deg, #f8fbff, var(--blue-50)); }
+        .panel-deep { border-left: 4px solid var(--blue-800); background: linear-gradient(135deg, var(--blue-50), #e0edff); }
+        .panel-map-panel {
+            border-left: 4px solid var(--blue-500);
+            flex: 1;
+            min-height: 0;
+            display: flex;
+            flex-direction: column;
+        }
+        .panel-dial { border-left: 4px solid var(--blue-700); background: linear-gradient(180deg, #f0f7ff, #dbeafe); }
+        .gauge-bubble {
+            border-radius: 50%;
+            width: 64px;
+            height: 64px;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            font-weight: 700;
+            border: 2px solid var(--blue-400);
+            background: #fff;
+            color: var(--blue-800);
+        }
+        .log-box {
+            font-family: ui-monospace, monospace;
+            font-size: 10px;
+            line-height: 1.45;
+            overflow-y: auto;
+            flex: 1;
+            min-height: 0;
+            border-radius: 4px;
+            background: var(--blue-950);
+            color: var(--blue-300);
+            border: 1px solid var(--blue-700);
+        }
+        .log-box .line { padding: 2px 6px; border-bottom: 1px solid var(--blue-900); }
+        .btn-action {
+            font-size: 10px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            padding: 4px 10px;
+            border-radius: 4px;
+            border: 1px solid var(--blue-400);
+            background: var(--blue-50);
+            color: var(--blue-800);
+            cursor: pointer;
+            transition: background 0.15s;
+        }
+        .btn-action:hover { background: var(--blue-200); }
+        .btn-run { background: var(--blue-600); color: #fff; border-color: var(--blue-700); }
+        .btn-stop { background: var(--blue-900); color: var(--blue-200); border-color: var(--blue-950); }
+        .btn-export { background: var(--blue-700); color: #fff; border-color: var(--blue-800); }
+        .state-banner {
+            background: linear-gradient(135deg, var(--blue-200), var(--blue-300));
+            border: 2px solid var(--blue-500);
+            border-radius: 6px;
+            font-weight: 800;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            color: var(--blue-900);
+        }
+        .map-wrapper {
+            position: relative;
+            width: 100%;
+            flex: 1;
+            min-height: 0;
+        }
+        .panel-log {
+            flex: 1;
+            min-height: 0;
+            display: flex;
+            flex-direction: column;
+        }
+        #mission-map {
+            width: 100%;
+            height: 100%;
+            border-radius: 6px;
+            border: 1px solid var(--blue-300);
+            z-index: 0;
+        }
+        .map-coords {
+            position: absolute;
+            bottom: 6px;
+            left: 6px;
+            z-index: 1000;
+            background: rgba(15, 39, 68, 0.88);
+            color: var(--blue-100);
+            font-size: 9px;
+            font-family: ui-monospace, monospace;
+            padding: 4px 8px;
+            border-radius: 4px;
+            pointer-events: none;
+        }
+        #orientation-viewer {
+            width: 100%;
+            height: 100px;
+            border-radius: 6px;
+            background: radial-gradient(ellipse at center, #1e3a5f 0%, #0c1929 100%);
+            border: 1px solid var(--blue-600);
+        }
+        .dial-readout {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 4px;
+            margin-top: 4px;
+            font-size: 9px;
+            font-family: ui-monospace, monospace;
+        }
+        .dial-readout span { background: var(--blue-100); border: 1px solid var(--blue-300); border-radius: 4px; padding: 2px 4px; text-align: center; color: var(--blue-900); font-weight: 700; }
+        .leaflet-container { font-family: inherit; }
+    </style>
+</head>
+<body class="p-2 h-screen flex flex-col overflow-hidden select-none text-sm">
+
+    <header class="panel panel-accent p-2 mb-2 flex justify-between items-center relative shrink-0">
+        <div class="flex gap-2 items-center z-10">
+            <button class="btn-action" style="background:var(--blue-500);color:#fff;border-color:var(--blue-600)">Activate</button>
+            <button class="btn-action btn-run">Run</button>
+            <button class="btn-action btn-stop">Stop</button>
+            <span class="flex items-center gap-1 text-xs font-bold ml-2" style="color:var(--blue-700)">
+                <span class="w-2 h-2 rounded-full animate-pulse" style="background:var(--blue-500)"></span> LIVE
+            </span>
+        </div>
+        <div class="absolute left-1/2 -translate-x-1/2 text-center">
+            <h1 class="text-lg font-extrabold tracking-wide uppercase" style="color:var(--blue-900)">CANSAT GROUND CONTROL SYSTEM</h1>
+            <p class="text-[11px] font-medium tracking-wider" style="color:var(--blue-600)">IN-Space cansat competition 2026</p>
+        </div>
+        <div class="flex gap-2 z-10">
+            <button type="button" id="btn-export-csv" class="btn-action btn-export">Export CSV</button>
+            <button type="button" id="btn-sync-time" class="btn-action">Sync PC Time</button>
+            <button type="button" id="btn-export-graph" class="btn-action btn-export">Export Graph</button>
+        </div>
+    </header>
+
+    <main class="grid grid-cols-12 gap-2 flex-1 min-h-0 overflow-hidden">
+
+        <!-- LEFT COLUMN -->
+        <div class="col-span-3 col-left">
+
+            <div class="panel panel-accent p-2 shrink-0">
+                <div class="text-[10px] font-bold uppercase tracking-wider mb-1" style="color:var(--blue-800)">Flight Status</div>
+                <div id="flight-state-banner" class="state-banner text-center py-1.5 text-xs mb-1.5">BOOT</div>
+                <div class="grid grid-cols-2 gap-1.5 text-xs font-mono">
+                    <div class="rounded p-1.5 border" style="background:#fff;border-color:var(--blue-200)">
+                        <div class="text-[9px] uppercase font-bold" style="color:var(--blue-600)">State Packets</div>
+                        <div id="pkt-count" class="text-base font-bold" style="color:var(--blue-900)">0</div>
+                    </div>
+                    <div class="rounded p-1.5 border" style="background:#fff;border-color:var(--blue-200)">
+                        <div class="text-[9px] uppercase font-bold" style="color:var(--blue-600)">Mission Time</div>
+                        <div id="m-time" class="text-base font-bold tabular-nums" style="color:var(--blue-900)">00:00:00</div>
+                    </div>
+                </div>
+                <p class="text-[9px] mt-1 text-center font-mono" style="color:var(--blue-600)" id="team-id">CAN-7USAT Model Satellite 2026</p>
+            </div>
+
+            <!-- Orientation Dial -->
+            <div class="panel panel-dial p-2 shrink-0">
+                <div class="text-[10px] font-bold uppercase tracking-wider mb-1" style="color:var(--blue-800)">Orientation Dial</div>
+                <div id="orientation-viewer"></div>
+                <div class="dial-readout">
+                    <span>Roll <b id="dial-roll">0.0°</b></span>
+                    <span>Pitch <b id="dial-pitch">0.0°</b></span>
+                    <span>Yaw <b id="dial-yaw">0.0°</b></span>
+                </div>
+            </div>
+
+            <!-- Live Mission Map -->
+            <div class="panel panel-map-panel p-2">
+                <div class="text-[10px] font-bold uppercase tracking-wider mb-1 shrink-0" style="color:var(--blue-800)">Real-Time Mission Map</div>
+                <div class="map-wrapper flex-1 min-h-0">
+                    <div id="mission-map"></div>
+                    <div class="map-coords">
+                        LAT <span id="map-lat">26.8467</span> · LON <span id="map-lon">80.9462</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- CENTER: Graphs -->
+        <div class="col-span-6 col-center">
+            <div class="grid grid-cols-2 gap-2 flex-1 min-h-0">
+                <div class="panel panel-deep p-2 flex flex-col min-h-0">
+                    <div class="flex justify-between items-center mb-1">
+                        <h2 class="text-[10px] uppercase font-bold" style="color:var(--blue-800)">Ideal descent rate</h2>
+                        <span id="val-alt-ideal" class="text-xs font-bold font-mono" style="color:var(--blue-700)">0.0 m</span>
+                    </div>
+                    <p class="text-[8px] mb-1" style="color:var(--blue-600)">1000m → 600m @ 15m/s → 2m/s</p>
+                    <div class="relative flex-1 min-h-0"><canvas id="idealChart"></canvas></div>
+                </div>
+                <div class="panel panel-deep p-2 flex flex-col min-h-0">
+                    <div class="flex justify-between items-center mb-1">
+                        <h2 class="text-[10px] uppercase font-bold" style="color:var(--blue-800)">Actual descent rate</h2>
+                        <span id="val-alt-act" class="text-xs font-bold font-mono" style="color:var(--blue-600)">0.0 m</span>
+                    </div>
+                    <p class="text-[8px] mb-1" style="color:var(--blue-500)">Telemetry / parabolic</p>
+                    <div class="relative flex-1 min-h-0"><canvas id="actualChart"></canvas></div>
+                </div>
+            </div>
+            <div class="grid grid-cols-3 gap-2 flex-1 min-h-0">
+                <div class="panel panel-accent p-2 flex flex-col min-h-0">
+                    <div class="flex justify-between items-center mb-1">
+                        <h2 class="text-[10px] uppercase font-bold" style="color:var(--blue-800)">Temperature °C</h2>
+                        <span id="txt-temp" class="text-xs font-bold font-mono" style="color:var(--blue-700)">25.0</span>
+                    </div>
+                    <div class="relative flex-1 min-h-0"><canvas id="tempChart"></canvas></div>
+                </div>
+                <div class="panel panel-accent p-2 flex flex-col min-h-0">
+                    <div class="flex justify-between items-center mb-1">
+                        <h2 class="text-[10px] uppercase font-bold" style="color:var(--blue-800)">Pressure Pa</h2>
+                        <span id="txt-press" class="text-xs font-bold font-mono" style="color:var(--blue-700)">0</span>
+                    </div>
+                    <div class="relative flex-1 min-h-0"><canvas id="pressChart"></canvas></div>
+                </div>
+                <div class="panel panel-accent p-2 flex flex-col min-h-0">
+                    <div class="flex justify-between items-center mb-1">
+                        <h2 class="text-[10px] uppercase font-bold" style="color:var(--blue-800)">Battery V</h2>
+                        <span id="txt-volt" class="text-xs font-bold font-mono" style="color:var(--blue-700)">8.40 V</span>
+                    </div>
+                    <div class="relative flex-1 min-h-0"><canvas id="voltChart"></canvas></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- RIGHT COLUMN -->
+        <div class="col-span-3 col-right">
+            <div class="panel panel-deep p-2 shrink-0">
+                <div class="text-[10px] font-bold uppercase tracking-wider mb-1.5 text-center" style="color:var(--blue-800)">Atmospheric &amp; Kinematic Variables</div>
+                <div class="flex justify-around gap-1">
+                    <div class="gauge-bubble">
+                        <span class="text-[8px] uppercase" style="color:var(--blue-600)">Altitude</span>
+                        <span id="bubble-alt" class="text-xs">0.0</span>
+                        <span class="text-[8px]" style="color:var(--blue-500)">m</span>
+                    </div>
+                    <div class="gauge-bubble">
+                        <span class="text-[8px] uppercase" style="color:var(--blue-600)">Pressure</span>
+                        <span id="bubble-press" class="text-[10px]">101325</span>
+                        <span class="text-[8px]" style="color:var(--blue-500)">Pa</span>
+                    </div>
+                    <div class="gauge-bubble">
+                        <span class="text-[8px] uppercase" style="color:var(--blue-600)">Descent</span>
+                        <span id="bubble-rate" class="text-xs">0.0</span>
+                        <span class="text-[8px]" style="color:var(--blue-500)">m/s</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="panel panel-accent p-2 shrink-0">
+                <div class="text-[10px] font-bold uppercase tracking-wider mb-1" style="color:var(--blue-800)">GNSS / GPS Data</div>
+                <div class="p-2 rounded border space-y-1 font-mono text-[11px]" style="background:var(--blue-50);border-color:var(--blue-200)">
+                    <div class="flex justify-between"><span>Latitude:</span><span id="gps-lat" class="font-bold" style="color:var(--blue-900)">0.000000</span></div>
+                    <div class="flex justify-between"><span>Longitude:</span><span id="gps-lon" class="font-bold" style="color:var(--blue-900)">0.000000</span></div>
+                    <div class="flex justify-between"><span>Altitude:</span><span id="gps-alt" class="font-bold" style="color:var(--blue-900)">0.0 m</span></div>
+                    <div class="flex justify-between"><span>GNSS Sats:</span><span id="gps-sats" class="font-bold" style="color:var(--blue-900)">0 fix</span></div>
+                </div>
+            </div>
+
+            <div class="panel panel-accent p-2 shrink-0">
+                <div class="text-[10px] font-bold uppercase tracking-wider mb-1" style="color:var(--blue-800)">Terrain Analysis</div>
+                <div class="grid grid-cols-2 gap-1 text-[10px] font-mono p-2 rounded border" style="background:var(--blue-50);border-color:var(--blue-200)">
+                    <div>Type of soil:</div><div id="soil-type" class="font-bold text-right" style="color:var(--blue-900)">In-Flight...</div>
+                    <div>Seed dropped:</div><div id="seed-dropped" class="font-bold text-right" style="color:var(--blue-900)">In-Flight...</div>
+                </div>
+            </div>
+
+            <div class="panel panel-deep panel-log p-2 min-h-0">
+                <div class="text-[10px] font-bold uppercase tracking-wider mb-1 shrink-0" style="color:var(--blue-800)">Raw Serial Log</div>
+                <div id="raw-serial-log" class="log-box">
+                    <div class="line opacity-60">[--:--:--] Waiting for serial data...</div>
+                </div>
+            </div>
+
+            <div class="panel panel-accent p-2 grid grid-cols-3 gap-2 text-center shrink-0">
+                <div class="rounded border p-2" style="background:var(--blue-100);border-color:var(--blue-300)">
+                    <div class="text-[8px] uppercase font-bold" style="color:var(--blue-700)">Roll</div>
+                    <div id="gyro-roll" class="text-sm font-bold" style="color:var(--blue-900)">0.0°</div>
+                </div>
+                <div class="rounded border p-2" style="background:var(--blue-50);border-color:var(--blue-400)">
+                    <div class="text-[8px] uppercase font-bold" style="color:var(--blue-600)">Pitch</div>
+                    <div id="gyro-pitch" class="text-sm font-bold" style="color:var(--blue-900)">0.0°</div>
+                </div>
+                <div class="rounded border p-2" style="background:var(--blue-200);border-color:var(--blue-500)">
+                    <div class="text-[8px] uppercase font-bold" style="color:var(--blue-800)">Yaw</div>
+                    <div id="gyro-yaw" class="text-sm font-bold" style="color:var(--blue-950)">0.0°</div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <footer class="panel panel-accent mt-1 p-1.5 flex justify-between items-center text-xs shrink-0">
+        <div>
+            <span style="color:var(--blue-600)">Phase:</span>
+            <span id="footer-phase" class="font-bold uppercase ml-1" style="color:var(--blue-800)">BOOT</span>
+        </div>
+        <div class="font-medium" style="color:var(--blue-600)">IN-SPACE CAN-7USAT India 2026 — SI Units</div>
+        <div id="footer-clock" class="font-mono font-bold text-sm tabular-nums" style="color:var(--blue-700)">--:--:--</div>
+    </footer>
+
+    <script>
+        const MAX_POINTS = 35;
+        const gridColor = 'rgba(37, 99, 235, 0.15)';
+        const tickStyle = { color: '#1e3a5f', font: { size: 8 } };
+        const BLUE = {
+            dark: '#1e3a5f',
+            mid: '#2563eb',
+            light: '#60a5fa',
+            pale: '#93c5fd',
+            fill: 'rgba(37, 99, 235, 0.12)',
+        };
+
+        const makeChartOptions = (yLabel) => ({
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: { legend: { display: false } },
+            scales: {
+                x: { grid: { color: gridColor }, ticks: tickStyle },
+                y: {
+                    grid: { color: gridColor },
+                    ticks: tickStyle,
+                    title: yLabel ? { display: true, text: yLabel, font: { size: 8 }, color: BLUE.dark } : undefined,
+                },
+            },
+        });
+
+        const charts = {
+            ideal: new Chart(document.getElementById('idealChart'), {
+                type: 'line',
+                data: { labels: [], datasets: [{ data: [], borderColor: '#1e40af', backgroundColor: 'rgba(30,64,175,0.15)', borderWidth: 2, fill: true, tension: 0.3, pointRadius: 0 }] },
+                options: makeChartOptions('m'),
+            }),
+            actual: new Chart(document.getElementById('actualChart'), {
+                type: 'line',
+                data: { labels: [], datasets: [{ data: [], borderColor: '#3b82f6', backgroundColor: 'rgba(59,130,246,0.12)', borderWidth: 2, fill: true, tension: 0.25, pointRadius: 1 }] },
+                options: makeChartOptions('m'),
+            }),
+            temp: new Chart(document.getElementById('tempChart'), {
+                type: 'line',
+                data: { labels: [], datasets: [{ data: [], borderColor: '#60a5fa', backgroundColor: 'rgba(96,165,250,0.15)', borderWidth: 2, fill: true, tension: 0.2, pointRadius: 0 }] },
+                options: makeChartOptions('°C'),
+            }),
+            press: new Chart(document.getElementById('pressChart'), {
+                type: 'line',
+                data: { labels: [], datasets: [{ data: [], borderColor: '#2563eb', backgroundColor: 'rgba(37,99,235,0.1)', borderWidth: 2, fill: true, tension: 0.2, pointRadius: 0 }] },
+                options: makeChartOptions('Pa'),
+            }),
+            volt: new Chart(document.getElementById('voltChart'), {
+                type: 'line',
+                data: { labels: [], datasets: [{ data: [], borderColor: '#1d4ed8', backgroundColor: 'rgba(29,78,216,0.12)', borderWidth: 2, fill: true, tension: 0.2, pointRadius: 0 }] },
+                options: makeChartOptions('V'),
+            }),
+        };
+
+        function pushChart(chart, label, value) {
+            chart.data.labels.push(label);
+            chart.data.datasets[0].data.push(value);
+            if (chart.data.labels.length > MAX_POINTS) {
+                chart.data.labels.shift();
+                chart.data.datasets[0].data.shift();
+            }
+            chart.update('none');
+        }
+
+        /* —— Leaflet live map —— */
+        const INITIAL_LAT = 26.8467;
+        const INITIAL_LON = 80.9462;
+        const missionMap = L.map('mission-map', { zoomControl: true, attributionControl: true }).setView([INITIAL_LAT, INITIAL_LON], 14);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            maxZoom: 19,
+            attribution: '&copy; OpenStreetMap',
+        }).addTo(missionMap);
+
+        const cansatIcon = L.divIcon({
+            className: 'cansat-marker',
+            html: '<div style="width:14px;height:14px;background:#2563eb;border:2px solid #fff;border-radius:50%;box-shadow:0 0 8px #3b82f6"></div>',
+            iconSize: [14, 14],
+            iconAnchor: [7, 7],
+        });
+        let mapMarker = L.marker([INITIAL_LAT, INITIAL_LON], { icon: cansatIcon }).addTo(missionMap);
+        const flightPath = L.polyline([[INITIAL_LAT, INITIAL_LON]], {
+            color: '#2563eb',
+            weight: 3,
+            opacity: 0.75,
+            dashArray: '6, 4',
+        }).addTo(missionMap);
+        const pathCoords = [[INITIAL_LAT, INITIAL_LON]];
+
+        function updateMapPosition(lat, lon) {
+            const la = Number(lat);
+            const lo = Number(lon);
+            if (!Number.isFinite(la) || !Number.isFinite(lo)) return;
+            mapMarker.setLatLng([la, lo]);
+            pathCoords.push([la, lo]);
+            if (pathCoords.length > 120) pathCoords.shift();
+            flightPath.setLatLngs(pathCoords);
+            missionMap.panTo([la, lo], { animate: true, duration: 0.5 });
+            document.getElementById('map-lat').textContent = la.toFixed(4);
+            document.getElementById('map-lon').textContent = lo.toFixed(4);
+        }
+        function refreshMissionMap() {
+            missionMap.invalidateSize();
+        }
+        setTimeout(refreshMissionMap, 100);
+        setTimeout(refreshMissionMap, 600);
+        window.addEventListener('resize', refreshMissionMap);
+        const mapEl = document.getElementById('mission-map');
+        if (mapEl && typeof ResizeObserver !== 'undefined') {
+            new ResizeObserver(refreshMissionMap).observe(mapEl);
+        }
+
+        /* —— Three.js orientation dial —— */
+        const orientContainer = document.getElementById('orientation-viewer');
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x0c1929);
+        const camera = new THREE.PerspectiveCamera(42, 2, 0.1, 100);
+        camera.position.set(2.2, 1.4, 2.8);
+        camera.lookAt(0, 0, 0);
+        const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+        orientContainer.appendChild(renderer.domElement);
+
+        const ambient = new THREE.AmbientLight(0x93c5fd, 0.55);
+        const dirLight = new THREE.DirectionalLight(0xffffff, 0.9);
+        dirLight.position.set(3, 5, 4);
+        scene.add(ambient, dirLight);
+
+        const cansatGroup = new THREE.Group();
+        const bodyMat = new THREE.MeshPhongMaterial({ color: 0x3b82f6, shininess: 80, specular: 0x60a5fa });
+        const accentMat = new THREE.MeshPhongMaterial({ color: 0x1d4ed8, shininess: 60 });
+        const noseMat = new THREE.MeshPhongMaterial({ color: 0x93c5fd, shininess: 90 });
+
+        const body = new THREE.Mesh(new THREE.CylinderGeometry(0.35, 0.38, 1.4, 16), bodyMat);
+        const nose = new THREE.Mesh(new THREE.ConeGeometry(0.35, 0.35, 16), noseMat);
+        nose.position.y = 0.875;
+        const finGeo = new THREE.BoxGeometry(0.06, 0.45, 0.22);
+        for (let i = 0; i < 4; i++) {
+            const fin = new THREE.Mesh(finGeo, accentMat);
+            const a = (i / 4) * Math.PI * 2;
+            fin.position.set(Math.cos(a) * 0.38, -0.35, Math.sin(a) * 0.38);
+            fin.rotation.y = -a;
+            cansatGroup.add(fin);
+        }
+        const band = new THREE.Mesh(new THREE.CylinderGeometry(0.36, 0.36, 0.08, 16), accentMat);
+        band.position.y = 0.1;
+        cansatGroup.add(body, nose, band);
+        scene.add(cansatGroup);
+
+        const gridHelper = new THREE.GridHelper(3, 12, 0x1e40af, 0x1e3a5f);
+        gridHelper.position.y = -0.9;
+        scene.add(gridHelper);
+
+        let orientRoll = 0, orientPitch = 0, orientYaw = 0;
+
+        function resizeOrientationViewer() {
+            const w = orientContainer.clientWidth;
+            const h = orientContainer.clientHeight;
+            if (w < 1 || h < 1) return;
+            renderer.setSize(w, h);
+            camera.aspect = w / h;
+            camera.updateProjectionMatrix();
+        }
+
+        function updateOrientationDial(roll, pitch, yaw) {
+            orientRoll = THREE.MathUtils.degToRad(Number(roll) || 0);
+            orientPitch = THREE.MathUtils.degToRad(Number(pitch) || 0);
+            orientYaw = THREE.MathUtils.degToRad(Number(yaw) || 0);
+            cansatGroup.rotation.set(orientPitch, orientYaw, orientRoll, 'YXZ');
+            document.getElementById('dial-roll').textContent = (Number(roll) || 0).toFixed(1) + '°';
+            document.getElementById('dial-pitch').textContent = (Number(pitch) || 0).toFixed(1) + '°';
+            document.getElementById('dial-yaw').textContent = (Number(yaw) || 0).toFixed(1) + '°';
+        }
+
+        function animateOrientation() {
+            requestAnimationFrame(animateOrientation);
+            renderer.render(scene, camera);
+        }
+        resizeOrientationViewer();
+        window.addEventListener('resize', resizeOrientationViewer);
+        animateOrientation();
+
+        const rawSerialEl = document.getElementById('raw-serial-log');
+        const MAX_LOG_LINES = 80;
+
+        function appendRawSerial(time, message) {
+            const div = document.createElement('div');
+            div.className = 'line';
+            div.textContent = `[${time}] ${message}`;
+            if (rawSerialEl.children.length === 1 && rawSerialEl.children[0].textContent.includes('Waiting for serial')) {
+                rawSerialEl.innerHTML = '';
+            }
+            rawSerialEl.appendChild(div);
+            while (rawSerialEl.children.length > MAX_LOG_LINES) {
+                rawSerialEl.removeChild(rawSerialEl.firstChild);
+            }
+            rawSerialEl.scrollTop = rawSerialEl.scrollHeight;
+        }
+
+        function updateFooterClock() {
+            document.getElementById('footer-clock').textContent = new Date().toLocaleTimeString('en-GB', { hour12: false });
+        }
+        setInterval(updateFooterClock, 1000);
+        updateFooterClock();
+
+        document.getElementById('btn-export-csv').addEventListener('click', () => { window.location.href = '/api/export/csv'; });
+        document.getElementById('btn-export-graph').addEventListener('click', () => { window.location.href = '/api/export/graphs'; });
+        document.getElementById('btn-sync-time').addEventListener('click', async () => {
+            const res = await fetch('/api/sync-pc-time', { method: 'POST' });
+            const data = await res.json();
+            if (data.pc_time) appendRawSerial(data.pc_time, 'SYNC: PC time aligned');
+        });
+
+        const socket = io();
+
+        socket.on('serial_log', (entry) => appendRawSerial(entry.time, entry.message));
+
+        socket.on('telemetry_update', (data) => {
+            const stateShort = data.software_state.replace(/^\d+\s*\(/, '').replace(/\)$/, '');
+            document.getElementById('flight-state-banner').textContent = stateShort;
+            document.getElementById('footer-phase').textContent = stateShort;
+            document.getElementById('pkt-count').textContent = data.packet_count;
+            document.getElementById('m-time').textContent = data.mission_time_str || formatMissionTime(data.mission_time);
+
+            document.getElementById('val-alt-act').textContent = data.actual_altitude + ' m';
+            document.getElementById('val-alt-ideal').textContent = data.ideal_altitude + ' m';
+            document.getElementById('txt-temp').textContent = data.temp;
+            document.getElementById('txt-press').textContent = data.pressure;
+            document.getElementById('txt-volt').textContent = data.voltage + ' V';
+
+            document.getElementById('bubble-alt').textContent = data.actual_altitude;
+            document.getElementById('bubble-press').textContent = Math.round(data.pressure);
+            document.getElementById('bubble-rate').textContent = data.descent_rate;
+
+            document.getElementById('gps-lat').textContent = data.gps_lat;
+            document.getElementById('gps-lon').textContent = data.gps_lon;
+            document.getElementById('gps-alt').textContent = data.gps_alt + ' m';
+            document.getElementById('gps-sats').textContent = (data.gnss_sats || 8) + ' fix';
+
+            updateMapPosition(data.gps_lat, data.gps_lon);
+            updateOrientationDial(data.roll, data.pitch, data.yaw);
+
+            document.getElementById('gyro-roll').textContent = data.roll + '°';
+            document.getElementById('gyro-pitch').textContent = data.pitch + '°';
+            document.getElementById('gyro-yaw').textContent = data.yaw + '°';
+
+            const soilTypeEl = document.getElementById('soil-type');
+            const seedDroppedEl = document.getElementById('seed-dropped');
+            if (data.soil_type) {
+                soilTypeEl.textContent = data.soil_type;
+            } else {
+                soilTypeEl.textContent = 'In-Flight...';
+            }
+            if (data.seed_dropped) {
+                seedDroppedEl.textContent = data.seed_dropped;
+            } else {
+                seedDroppedEl.textContent = 'In-Flight...';
+            }
+
+            appendRawSerial(
+                data.timestamp,
+                `PKT #${data.packet_count} | ${data.software_state} | ALT ${data.actual_altitude}m | RATE ${data.descent_rate}m/s`
+            );
+
+            const ts = data.timestamp;
+            pushChart(charts.ideal, ts, data.ideal_altitude);
+            pushChart(charts.actual, ts, data.actual_altitude);
+            pushChart(charts.temp, ts, data.temp);
+            pushChart(charts.press, ts, data.pressure);
+            pushChart(charts.volt, ts, data.voltage);
+        });
+
+        function formatMissionTime(sec) {
+            const h = Math.floor(sec / 3600);
+            const m = Math.floor((sec % 3600) / 60);
+            const s = sec % 60;
+            return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+        }
+    </script>
+</body>
+</html>
